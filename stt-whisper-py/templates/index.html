@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Notes - Whisper AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎤 Voice Notes - Whisper AI</h1>
+            <div class="status" id="status">Prêt à enregistrer</div>
+        </header>
+
+        <main>
+            <!-- Controls -->
+            <div class="controls">
+                <button id="startBtn" class="btn btn-start">🎤 Démarrer</button>
+                <button id="stopBtn" class="btn btn-stop" disabled>⏹️ Arrêter</button>
+                <button id="clearBtn" class="btn btn-clear">🗑️ Effacer</button>
+            </div>
+
+            <!-- Audio Visualizer -->
+            <div class="visualizer">
+                <canvas id="visualizer" width="800" height="100"></canvas>
+            </div>
+
+            <!-- Results Sections -->
+            <div class="results-grid">
+                <!-- Transcription -->
+                <section class="result-section">
+                    <h2>📝 Transcription</h2>
+                    <div class="content-box" id="transcription">
+                        Votre transcription avec ponctuation automatique apparaîtra ici...
+                    </div>
+                </section>
+
+                <!-- Summary -->
+                <section class="result-section">
+                    <h2>📋 Résumé Intelligent</h2>
+                    <div class="content-box" id="summary">
+                        Le résumé sera généré automatiquement...
+                    </div>
+                </section>
+
+                <!-- Classification -->
+                <section class="result-section">
+                    <h2>🏷️ Classification</h2>
+                    <div class="content-box" id="classification">
+                        <span class="label" id="label">Attente...</span>
+                        <div class="confidence" id="confidence"></div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Export -->
+            <div class="export-section">
+                <button id="exportBtn" class="btn btn-export">💾 Exporter en JSON</button>
+                <button id="copyBtn" class="btn btn-copy">📋 Copier le texte</button>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/recorder.js') }}"></script>
+</body>
+</html>
