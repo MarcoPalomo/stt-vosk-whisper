@@ -3,11 +3,13 @@ from flask_socketio import SocketIO, emit
 import whisper
 import torch
 import io
-import soundfile as sf
 import numpy as np
+from pydub import AudioSegment
 from utils.summarizer import summarize_text
 from utils.classifier import classify_text
 import logging
+import tempfile
+import os
 
 # Configuration Flask
 app = Flask(__name__)
@@ -68,32 +70,36 @@ def handle_audio_chunk(data):
         
         logger.info(f"Chunk audio reçu: {len(data)} bytes")
         
-        # Convertir bytes en audio array
-        audio_bytes = io.BytesIO(data)
-        
         try:
-            # Lire l'audio avec soundfile
-            audio, samplerate = sf.read(audio_bytes)
+            # Créer un fichier temporaire pour le chunk audio
+            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_webm:
+                temp_webm.write(data)
+                temp_webm_path = temp_webm.name
             
-            # S'assurer que l'audio est en mono
-            if len(audio.shape) > 1:
-                audio = np.mean(audio, axis=1)
-            
-            # Whisper attend du 16kHz
-            if samplerate != 16000:
-                # Ré-échantillonnage simple (pour une vraie app, utilisez scipy.signal.resample)
-                ratio = 16000 / samplerate
-                new_length = int(len(audio) * ratio)
-                audio = np.interp(np.linspace(0, len(audio), new_length), np.arange(len(audio)), audio)
-            
-            # Normaliser l'audio
-            if len(audio) > 0:
-                audio = audio.astype(np.float32)
-                audio = audio / np.max(np.abs(audio)) if np.max(np.abs(audio)) > 0 else audio
+            try:
+                # Charger l'audio avec pydub
+                audio_segment = AudioSegment.from_file(temp_webm_path, format='webm')
+                
+                # Convertir en mono et 16kHz
+                audio_segment = audio_segment.set_channels(1).set_frame_rate(16000)
+                
+                # Convertir en numpy array
+                audio = np.array(audio_segment.get_array_of_samples())
+                audio = audio.astype(np.float32) / (2**15)  # Convertir en float32 et normaliser
+                
+                # Supprimer le fichier temporaire
+                os.unlink(temp_webm_path)
+                
+            except Exception as e:
+                logger.error(f"❌ Erreur conversion audio: {e}")
+                emit("error", {"message": f"Erreur conversion audio: {e}"})
+                if os.path.exists(temp_webm_path):
+                    os.unlink(temp_webm_path)
+                return
             
         except Exception as e:
-            logger.error(f"❌ Erreur lecture audio: {e}")
-            emit("error", {"message": f"Erreur format audio: {e}"})
+            logger.error(f"❌ Erreur manipulation fichier temporaire: {e}")
+            emit("error", {"message": "Erreur lors du traitement audio"})
             return
         
         # Vérifier la longueur minimum (éviter les chunks trop courts)
