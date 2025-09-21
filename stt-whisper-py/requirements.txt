@@ -1,0 +1,27 @@
+# Core dependencies
+flask==2.3.3
+flask-socketio==5.3.6
+python-socketio==5.9.0
+eventlet==0.33.3
+
+# PyTorch with CUDA support (if available, falls back to CPU-only)
+torch>=2.7.0 --index-url https://download.pytorch.org/whl/cu118
+torchaudio>=2.7.0 --index-url https://download.pytorch.org/whl/cu118
+
+# Whisper and audio processing
+openai-whisper==20231117
+soundfile==0.12.1
+librosa==0.10.1
+pydub==0.25.1
+ffmpeg-python==0.2.0
+
+# ML/NLP
+transformers==4.35.2
+lightgbm==4.1.0
+scikit-learn==1.3.0
+numpy==1.24.3
+scipy==1.11.4
+
+# Utilities
+tqdm==4.66.1
+python-dotenv==1.0.0
