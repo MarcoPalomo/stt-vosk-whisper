@@ -10,6 +10,8 @@ from utils.classifier import classify_text
 import logging
 import tempfile
 import os
+import subprocess
+import json
 
 # Configuration Flask
 app = Flask(__name__)
@@ -70,103 +72,164 @@ def handle_audio_chunk(data):
         
         logger.info(f"Chunk audio reçu: {len(data)} bytes")
         
+        if len(data) < 100:  # Chunk trop petit, probablement vide
+            logger.warning("Chunk audio trop petit, ignoré")
+            return
+            
         try:
             # Créer un fichier temporaire pour le chunk audio
             with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_webm:
                 temp_webm.write(data)
                 temp_webm_path = temp_webm.name
             
-            try:
-                # Charger l'audio avec pydub
-                audio_segment = AudioSegment.from_file(temp_webm_path, format='webm')
-                
-                # Convertir en mono et 16kHz
-                audio_segment = audio_segment.set_channels(1).set_frame_rate(16000)
-                
-                # Convertir en numpy array
-                audio = np.array(audio_segment.get_array_of_samples())
-                audio = audio.astype(np.float32) / (2**15)  # Convertir en float32 et normaliser
-                
-                # Supprimer le fichier temporaire
-                os.unlink(temp_webm_path)
-                
-            except Exception as e:
-                logger.error(f"❌ Erreur conversion audio: {e}")
-                emit("error", {"message": f"Erreur conversion audio: {e}"})
-                if os.path.exists(temp_webm_path):
-                    os.unlink(temp_webm_path)
-                return
+            # Créer un fichier WAV temporaire pour la sortie
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                temp_wav_path = temp_wav.name
             
+            try:
+                # Convertir WebM en WAV avec FFmpeg
+                command = [
+                    'ffmpeg',
+                    '-y',  # Overwrite output file if it exists
+                    '-i', temp_webm_path,  # Input file
+                    '-ac', '1',  # Mono
+                    '-ar', '16000',  # 16kHz sample rate
+                    '-acodec', 'pcm_s16le',  # 16-bit PCM
+                    '-f', 'wav',  # WAV format
+                    temp_wav_path  # Output file
+                ]
+                
+                # Exécuter la commande FFmpeg avec timeout
+                result = subprocess.run(
+                    command, 
+                    capture_output=True, 
+                    text=True,
+                    timeout=5  # 5 secondes de timeout
+                )
+                
+                if result.returncode != 0:
+                    error_msg = f"Erreur FFmpeg: {result.stderr}"
+                    logger.error(error_msg)
+                    emit("error", {"message": error_msg})
+                    return
+                
+                # Vérifier que le fichier WAV a été créé
+                if not os.path.exists(temp_wav_path) or os.path.getsize(temp_wav_path) == 0:
+                    error_msg = "Le fichier WAV de sortie est vide"
+                    logger.error(error_msg)
+                    emit("error", {"message": error_msg})
+                    return
+                
+                # Charger l'audio avec pydub
+                audio = AudioSegment.from_wav(temp_wav_path)
+                
+                # Vérifier la durée minimale (au moins 100ms)
+                if len(audio) < 100:  # 100ms
+                    logger.warning("Chunk audio trop court après conversion, ignoré")
+                    return
+                
+                # Convertir en array numpy
+                samples = np.array(audio.get_array_of_samples())
+                samples = samples.astype(np.float32) / (2**15)  # Normaliser entre -1 et 1
+                
+                # Libérer la mémoire
+                del audio
+                
+                # Vérifier la longueur minimum (au moins 0.5 seconde à 16kHz)
+                if len(samples) < 8000:  # 0.5 seconde à 16kHz
+                    logger.warning("Chunk audio trop court pour la transcription, ignoré")
+                    return
+                
+                try:
+                    # Transcrire avec Whisper
+                    logger.info("Début de la transcription avec Whisper...")
+                    
+                    result = model.transcribe(
+                        samples,
+                        language="fr",  # Français
+                        task="transcribe",
+                        temperature=0.0,  # Déterministe
+                        no_speech_threshold=0.6,  # Seuil de détection de parole
+                        logprob_threshold=-1.0,
+                        compression_ratio_threshold=2.4
+                    )
+                    
+                    text = result["text"].strip()
+                    
+                    if not text:
+                        logger.info("Aucune parole détectée dans ce chunk")
+                        emit("transcription", {
+                            "text": accumulated_text,
+                            "summary": "",
+                            "label": {"label": "En attente...", "confidence": 0}
+                        })
+                        return
+                    
+                    logger.info(f"Texte transcrit: '{text}'")
+                    
+                    # Accumuler le texte
+                    if text:
+                        accumulated_text += " " + text
+                        accumulated_text = accumulated_text.strip()
+                    
+                    # Générer un résumé si assez de texte
+                    summary = ""
+                    if len(accumulated_text) > 100:
+                        try:
+                            logger.info("Génération du résumé...")
+                            summary = summarize_text(accumulated_text)
+                        except Exception as e:
+                            logger.error(f"Erreur lors de la génération du résumé: {e}")
+                            summary = "Erreur lors de la génération du résumé"
+                    
+                    # Classification du texte si assez de contenu
+                    classification = {"label": "En attente...", "confidence": 0}
+                    if len(accumulated_text) > 50:
+                        try:
+                            logger.info("Classification du texte...")
+                            classification = classify_text(accumulated_text)
+                        except Exception as e:
+                            logger.error(f"Erreur lors de la classification: {e}")
+                            classification = {"label": "Erreur classification", "confidence": 0}
+                    
+                    # Envoyer les résultats au client
+                    emit("transcription", {
+                        "text": accumulated_text,
+                        "summary": summary,
+                        "label": classification
+                    })
+                    
+                    logger.info("Résultats envoyés avec succès")
+                    
+                except Exception as e:
+                    logger.error(f"Erreur lors de la transcription: {str(e)}")
+                    emit("error", {"message": f"Erreur de transcription: {str(e)}"})
+                
+            except subprocess.CalledProcessError as e:
+                error_msg = f"Erreur FFmpeg: {e.stderr}"
+                logger.error(error_msg)
+                emit("error", {"message": error_msg})
+                
+            except Exception as e:
+                error_msg = f"Erreur de traitement audio: {str(e)}"
+                logger.error(error_msg)
+                emit("error", {"message": error_msg})
+                
+            finally:
+                # Nettoyer les fichiers temporaires
+                for file_path in [temp_webm_path, temp_wav_path]:
+                    try:
+                        if file_path and os.path.exists(file_path):
+                            os.unlink(file_path)
+                    except Exception as e:
+                        logger.error(f"Erreur lors de la suppression de {file_path}: {e}")
+        
         except Exception as e:
-            logger.error(f"❌ Erreur manipulation fichier temporaire: {e}")
-            emit("error", {"message": "Erreur lors du traitement audio"})
+            error_msg = f"Erreur lors du traitement du fichier temporaire: {str(e)}"
+            logger.error(error_msg)
+            emit("error", {"message": error_msg})
             return
-        
-        # Vérifier la longueur minimum (éviter les chunks trop courts)
-        if len(audio) < 1600:  # Moins de 0.1 seconde à 16kHz
-            logger.warning("⚠️ Chunk audio trop court, ignoré")
-            return
-        
-        # Transcription avec Whisper
-        logger.info("Transcription avec Whisper...")
-        
-        result = model.transcribe(
-            audio,
-            language="fr",  # Français
-            task="transcribe",
-            temperature=0.0,  # Déterministe
-            no_speech_threshold=0.6,  # Seuil de détection de parole
-            logprob_threshold=-1.0,
-            compression_ratio_threshold=2.4
-        )
-        
-        text = result["text"].strip()
-        
-        if not text:
-            logger.info("🔇 Pas de parole détectée dans ce chunk")
-            emit("transcription", {
-                "text": accumulated_text,
-                "summary": "",
-                "label": {"label": "En attente...", "confidence": 0}
-            })
-            return
-        
-        logger.info(f"📝 Texte transcrit: '{text}'")
-        
-        # Accumuler le texte
-        if text:
-            accumulated_text += " " + text
-            accumulated_text = accumulated_text.strip()
-        
-        # Summary (only if enough text)
-        summary = ""
-        if len(accumulated_text) > 100:
-            try:
-                logger.info("Génération du résumé...")
-                summary = summarize_text(accumulated_text)
-            except Exception as e:
-                logger.error(f"Erreur résumé: {e}")
-                summary = "Erreur lors de la génération du résumé"
-        
-        # Classification (only if enough text)
-        classification = {"label": "En attente...", "confidence": 0}
-        if len(accumulated_text) > 50:
-            try:
-                logger.info("🏷️ Classification du texte...")
-                classification = classify_text(accumulated_text)
-            except Exception as e:
-                logger.error(f"Erreur classification: {e}")
-                classification = {"label": "Erreur classification", "confidence": 0}
-        
-        # Send results to client
-        emit("transcription", {
-            "text": accumulated_text,
-            "summary": summary,
-            "label": classification
-        })
-        
-        logger.info("✅ Résultats envoyés au client")
-        
+            
     except Exception as e:
         logger.error(f"❌ Erreur traitement audio: {e}")
         emit("error", {"message": f"Erreur serveur: {str(e)}"})
