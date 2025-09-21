@@ -1,0 +1,80 @@
+<Window x:Class="VoiceNotesApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Voice Notes App" Height="600" Width="800"
+        WindowStartupLocation="CenterScreen">
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Status Bar -->
+        <TextBlock x:Name="StatusLabel" Grid.Row="0" 
+                   Text="🔄 Initialisation..." 
+                   FontSize="14" FontWeight="Bold" 
+                   Margin="0,0,0,10" 
+                   HorizontalAlignment="Center"/>
+        
+        <!-- Transcription Section -->
+        <GroupBox Grid.Row="1" Header="📝 Transcription" Margin="0,0,0,10">
+            <ScrollViewer>
+                <TextBox x:Name="TranscriptBox" 
+                         TextWrapping="Wrap" 
+                         VerticalScrollBarVisibility="Auto"
+                         IsReadOnly="True"
+                         FontSize="12"
+                         Background="#F5F5F5"/>
+            </ScrollViewer>
+        </GroupBox>
+        
+        <!-- Summary Section -->
+        <GroupBox Grid.Row="2" Header="📋 Résumé" Margin="0,0,0,10">
+            <ScrollViewer>
+                <TextBox x:Name="SummaryBox" 
+                         TextWrapping="Wrap" 
+                         VerticalScrollBarVisibility="Auto"
+                         IsReadOnly="True"
+                         FontSize="12"
+                         Background="#F0F8FF"/>
+            </ScrollViewer>
+        </GroupBox>
+        
+        <!-- Buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" 
+                    HorizontalAlignment="Center" Margin="0,10">
+            
+            <Button x:Name="StartBtn" Content="🎤 Démarrer Réunion" 
+                    Click="StartBtn_Click"
+                    Padding="15,8" Margin="5" 
+                    FontSize="14" FontWeight="Bold"
+                    Background="#4CAF50" Foreground="White"
+                    BorderBrush="#45a049" BorderThickness="1"/>
+            
+            <Button x:Name="SummarizeBtn" Content="📋 Résumer" 
+                    Click="SummarizeBtn_Click"
+                    Padding="15,8" Margin="5"
+                    FontSize="14" FontWeight="Bold"
+                    Background="#2196F3" Foreground="White"
+                    BorderBrush="#1976D2" BorderThickness="1"/>
+            
+            <Button x:Name="SaveBtn" Content="💾 Enregistrer" 
+                    Click="SaveBtn_Click"
+                    Padding="15,8" Margin="5"
+                    FontSize="14" FontWeight="Bold"
+                    Background="#FF9800" Foreground="White"
+                    BorderBrush="#F57C00" BorderThickness="1"/>
+        </StackPanel>
+        
+        <!-- Footer -->
+        <TextBlock Grid.Row="4" 
+                   Text="Voice Notes App - Cliquez sur 'Démarrer Réunion' pour commencer l'enregistrement"
+                   HorizontalAlignment="Center" 
+                   FontSize="10" Foreground="Gray" 
+                   Margin="0,10,0,0"/>
+    </Grid>
+</Window>
