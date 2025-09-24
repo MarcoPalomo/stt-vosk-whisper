@@ -66,16 +66,34 @@ class VoiceRecorder {
 
             this.setupAudioContext(stream);
 
-            this.mediaRecorder = new MediaRecorder(stream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
+            // Choisir dynamiquement un type MIME supporté
+            const candidateTypes = [
+                'audio/webm;codecs=opus',
+                'audio/ogg;codecs=opus',
+                'audio/webm',
+                'audio/ogg'
+            ];
+            let selectedType = '';
+            for (const t of candidateTypes) {
+                if (MediaRecorder.isTypeSupported(t)) {
+                    selectedType = t;
+                    break;
+                }
+            }
+            // Fallback sans préciser le type si rien n'est supporté
+            const options = selectedType ? { mimeType: selectedType } : {};
+            this.selectedMimeType = selectedType || 'audio/webm;codecs=opus';
+
+            this.mediaRecorder = new MediaRecorder(stream, options);
 
             this.recordedChunks = [];
 
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
+            this.mediaRecorder.ondataavailable = async (event) => {
+                if (event.data && event.data.size > 0) {
+                    // Accumuler tous les chunks depuis le début pour garantir un WebM valide
                     this.recordedChunks.push(event.data);
-                    this.sendAudioChunk(event.data);
+                    const blob = new Blob(this.recordedChunks, { type: this.selectedMimeType });
+                    await this.sendAudioBlob(blob);
                 }
             };
 
@@ -118,13 +136,16 @@ class VoiceRecorder {
         }
     }
 
-    sendAudioChunk(audioChunk) {
-        const reader = new FileReader();
-        reader.onload = () => {
-            // Convertir en ArrayBuffer et envoyer via Socket.IO
-            this.socket.emit('audio_chunk', reader.result);
-        };
-        reader.readAsArrayBuffer(audioChunk);
+    async sendAudioBlob(blob) {
+        try {
+            // Envoyer directement l'ArrayBuffer (binaire) pour que Socket.IO transporte en binaire
+            const arrayBuffer = await blob.arrayBuffer();
+            // Émettre 2 arguments: (binaire, mimeType)
+            this.socket.emit('audio_chunk', arrayBuffer, this.selectedMimeType);
+        } catch (error) {
+            console.error('Erreur lors de l\'envoi audio:', error);
+            this.updateStatus(' Erreur d\'envoi audio', 'error');
+        }
     }
 
     updateTranscription(text) {
